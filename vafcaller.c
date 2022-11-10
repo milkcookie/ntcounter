@@ -14,7 +14,7 @@ void ntcounts(const char *bam, const char *bedfile, uint32_t q, uint32_t F, cons
 void printProgress(double percentage, int done, int tot);
 int countline(const char *filename);
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) { 
 
     int opt;
     opterr = 0;
@@ -37,7 +37,14 @@ int main(int argc, char *argv[]) {
                 usage();
                 exit(1);
                 break;
+            case '?':
+                usage();
+                break;
         }
+    if (argc == 0) {
+        usage();
+        exit(1);
+    }
     uint32_t q = 10;
     uint32_t F = 1024;
     ntcounts(bam, bed, q, F, fa, op);
@@ -50,8 +57,14 @@ void usage() {
     printf("-l bedfile, the input file , just with chrom and pos two columns....\n");
     printf("-r reference fasta file in fasta format....\n");
     printf("-o output file the result file....\n");
-
-}
+        // char *bam = "/PROJ/Proj_2022/20220906002MRD/SZL_WES_394434/Mapping/SZL-QP/SZL-QP.final.bam";
+        // char *ref = "/Data/HUMAN_DB/HG19/ref_fa/human_hg19.fa";
+        // char *maf = "/PROJ/Proj_2022/20220906002MRD/SZL_WES_394434/Somatic/SZL-QP/MAF/Somatic_mutation.maf";
+        // char *result = "result";
+        // uint32_t q = 10;
+        // uint32_t F = 1024;
+        // ntcounts(bam, maf, q, F, ref, result);
+    }
 
 
 int countline(const char *filename) {
@@ -88,7 +101,9 @@ void ntcounts(const char *bam, const char *bedfile, uint32_t q, uint32_t F, cons
     char tsv_file[1000];
     strcpy(tsv_file, op);
     strcat(tsv_file, ".tsv");
-
+    char maf_file_out[1000];
+    strcpy(maf_file_out, op);
+    strcat(maf_file_out, ".maf");
     int nloci = countline(bedfile);
 
     FILE *bed_fp;
@@ -96,6 +111,9 @@ void ntcounts(const char *bam, const char *bedfile, uint32_t q, uint32_t F, cons
     char buff[1000];
     FILE *tsv_fp;
     tsv_fp = fopen(tsv_file, "w" );
+
+    FILE *maf_fp;
+    maf_fp = fopen(maf_file_out, "w");
 
     char *seq;
     faidx_t *fa = fai_load(fafile);  //fai_load 是faidx.h 里面导入的
@@ -119,33 +137,74 @@ void ntcounts(const char *bam, const char *bedfile, uint32_t q, uint32_t F, cons
     }
     fprintf(tsv_fp, "#idxstats_mapped_reads\t%d\n", tot_mapped);
     fprintf(tsv_fp, "loci\tfa_ref\tA\tT\tG\tC\tIns\tDel\n");
-    while (fgets(buff, 1000, bed_fp) != NULL){ //按行读取文件
-        int len = strlen(buff);
-        if (buff[len - 1] == '\n') {
-            buff[len - 1] = 0; // 去掉尾部的换行符
-        }
+    char *snp_type = "SNP";
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    while (read = getline(&line, &len, bed_fp) != -1){ //按行读取文件
+        int len = read;
         //printf("%s", buff);
-        char *chrom = strtok(buff, "\t");
-        char *start = strtok(NULL, "\t");
-
+        //printf("%s", buff_str);
+        char *p_buff = line;
+        int strlength = strlen(line);
+        //printf("%d\n", strlength);
+        char line_str[1000];
+        sprintf(line_str, "%s", line);
+        char *token, *chrom, ref_base, alt_base, *pos_char, *snvtype;
+        double vaf;
+        for (int i=0;i<37;i++) {
+            if (i==4){
+                chrom = strsep(&p_buff, "\t");
+                if (strcmp(chrom, "Chromosome")==0) {
+                    //printf("wtf!\n");
+                    fputs(line_str, maf_fp);
+                    break;
+                }
+                //printf("chrom=%s\n", chrom);
+            } else if (i == 5) {
+                pos_char = strsep(&p_buff, "\t");
+                //printf("pos_char=%s\n", pos_char);
+            } else if (i == 9) {
+                snvtype = strsep(&p_buff, "\t");
+            } else if (i == 10) {
+                ref_base = strsep(&p_buff, "\t")[0];
+                //printf("ref_base=%c\n", ref_base);
+            } else if (i == 12) {
+                alt_base = strsep(&p_buff, "\t")[0];
+                //printf("alt_base=%c\n", alt_base);
+            } else if (i == 36) {
+                char *vaf_char = strsep(&p_buff, "\t");
+                sscanf(vaf_char, "%.3lf", &vaf);
+                break;
+            } else {
+            strsep(&p_buff, "\t");
+            }
+        }
+        // strtok(buff, "\t");
+        // strtok(NULL, "\t");
+        // strtok(NULL, "\t");
+        // strtok(NULL, "\t");
+        // char *chrom = strtok(NULL, "\t");
+        // char *start = strtok(NULL, "\t");
         char loci[250] = "";
-        strcat(loci, chrom); strcat(loci, ":"); strcat(loci, start);strcat(loci, "-");strcat(loci, start);
+        strcat(loci, chrom); strcat(loci, ":"); strcat(loci, pos_char);strcat(loci, "-");strcat(loci, pos_char);
         //printf("%s\t", loci);
         if (fa != NULL) {
             int templen = 100;
             seq = fai_fetch(fa, loci, &templen); //获取fasta文件目标片段信息
-            fprintf(tsv_fp, "%s:%s\t%s", chrom, start, seq);
+            //fprintf(tsv_fp, "%s:%s\t%s", chrom, pos_char, seq);
             free(seq);
         } else {
-            fprintf(tsv_fp, "%s:%s\tNA", chrom, start);
+            //fprintf(tsv_fp, "%s:%s\tNA", chrom, pos_char);
         }
-        int32_t target_pos = atoi(start) - 1; //输入的位置是 1-based atoi函数是将string 转化成int
+        int32_t target_pos = atoi(pos_char) - 1; //输入的位置是 1-based atoi函数是将string 转化成int
 
         hts_itr_t *samitr = sam_itr_querys(fp_idx, bamHdr, loci);
         //构建一个多重区域的迭代器 参数 idx是index， bamHdr是bam Header信息， loci是array of ref： interval region specifiers
 
         int32_t tot_reads = 0;
         float nt[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        int32_t alt_base_num = 0;
         vars_gt = vars_gt + 1; 
         while (sam_itr_next(fp_in, samitr, aln) > 0) {
             int32_t pos = aln->core.pos; //获取pos 即reads比对的起始位置
@@ -197,6 +256,10 @@ void ntcounts(const char *bam, const char *bedfile, uint32_t q, uint32_t F, cons
                     if (cigar_type == 'M') {
                         pos_onread = pos_onread - (pos - target_pos);
                         char base = qseq[pos_onread];
+                        if (base == alt_base) {
+                            alt_base_num += 1;
+                        }
+                        //printf("base=%c\n", base);
                         if (base == 'A') {
                             nt[0] += 1;
                         } else if (base == 'T') {
@@ -205,8 +268,9 @@ void ntcounts(const char *bam, const char *bedfile, uint32_t q, uint32_t F, cons
                             nt[2] += 1;
                         } else if ( base == 'C') {
                             nt[3] += 1;
+                        } else {
+                            continue;
                         }
-                        break;
                     }
                 } else if (pos == target_pos) {
                     if (cigar_type == 'I') {
@@ -214,18 +278,29 @@ void ntcounts(const char *bam, const char *bedfile, uint32_t q, uint32_t F, cons
                         break;
                     } else if (cigar_type == 'D') {
                         nt[5] = nt[5] + 1;
+                        break;
                     }
                 }
             }
             free(qseq);//释放动态申请的内存
         }
         hts_itr_destroy(samitr);
-        fprintf(tsv_fp, "\t%.f\t%.f\t%.f\t%.f\t%.f\t%.f\n",  nt[0], nt[1], nt[2], nt[3], nt[4], nt[5]);
+        double bam_vaf = (double)alt_base_num / tot_reads;
+        //printf("alt_base_num: %d\n", alt_base_num);
+        //printf("%.3lf\n", bam_vaf);
+        // printf("snvtype=%d\n", sizeof(snvtype));
+        // printf("snp_typr=%d\n", sizeof(snp_type));
+        if (bam_vaf > 0.05 && strncmp(snvtype, "SNP", 3) == 0){
+            fprintf(tsv_fp, "%s:%s\t%c\t%.f\t%.f\t%.f\t%.f\t%.f\t%.f\t%.3lf\n",  chrom, pos_char, ref_base, nt[0], nt[1], nt[2], nt[3], nt[4], nt[5], bam_vaf);
+            fputs(line_str, maf_fp);
+        }
     }
     bam_destroy1(aln);
     bam_hdr_destroy(bamHdr);
-    fai_destroy(fa);
+    // fai_destroy(fa);
     sam_close(fp_in);
-    //关闭各种数据
+    fclose(tsv_fp);
+    fclose(maf_fp);
+    //释放内存 关闭数据
 
 }
